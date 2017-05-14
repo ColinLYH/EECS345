@@ -1,0 +1,782 @@
+#| An interpreter for a Java-like language. Uses functionParser.scm to parse input.
+   Team member:  Yang Ding yxd155 / Guanzhou Qu gxq3 / Emilio Colindres exc231
+|#
+
+ (load "classParser.scm")
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;; top-level interpret ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define interpret
+  (lambda (filename class)
+    (changereturn
+     (let ((state (outer-interpreter (parser filename) (newstate) (defaultContext))))
+       (call/cc
+        (lambda (return)
+          (M_value (list 'funcall (list 'dot class 'main)) state
+                  (setContextReturn (defaultContext) return))))))))
+                  
+(define outer-interpreter
+  (lambda (block state context)
+    (cond
+     ((null? block) state)
+     ((eq? (car (car block)) 'class)
+      (outer-interpreter (cdr block) (M_state_class (car block) state context) context))
+     (else (error "Invaild scope for class definition.")))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;; end top-level interpret ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; random helpers ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define atom?
+  (lambda (x)
+    (and (not (pair? x)) (not (null? x)))))
+
+(define ==
+  (lambda (x y)
+    (cond
+     ((and (number? x) (number? y)) (= x y))
+     ((and (atom? x) (atom? y)) (eqv? x y))
+     ((and (list? x) (list? y)) (equal? x y))
+     (else #f))))
+
+(define !=
+  (lambda (x y)
+    (not (== x y))))
+
+
+(define itemname car)
+(define itemvalue cdr)
+(define valuelist cdr)
+(define namelist car)
+(define object car)
+(define expression caddr)
+(define vartype car)
+
+; get the index of an atom in a list
+(define lookupindex
+  (lambda (list item)
+    (((lambda (f) (f f))
+      (lambda (f)
+        (lambda (list item return)
+          (cond
+           ((null? list) -1) ;; No CPS return
+           ((eq? (itemname list) item) (return 0))
+           (else ((f f) (itemvalue list) item (lambda (v) (return (+ 1 v)))))))))
+     list item (lambda (v) v))))
+
+; replace the index'th item with the value specified
+(define setlist
+  (lambda (list index value)
+    (if (= 0 index)
+        (cons value (valuelist list))
+        (cons (namelist list) (setlist (valuelist list) (- index 1) value)))))
+
+(define changereturn
+  (lambda (stmt)
+    (cond
+      ((eq? stmt #t) 'true)
+      ((eq? stmt #f) 'false)
+      (else stmt))))
+
+(define box-all
+  (lambda (list)
+    (map box list)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;; end random helpers ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; layer operations  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define newlayer
+  (lambda () '(() ())))
+(define firstvar caar)
+(define firstval caadr)
+(define varlist car)
+(define vallist cadr)
+
+(define addtolayer
+  (lambda (layer var value)
+    (list (cons var (varlist layer)) (append (vallist layer) (list value)))))
+
+(define addenvironment
+  (lambda (env var value) (addtolayer env var (box value))))
+
+(define lookuplayer
+  (lambda (layer var)
+    (let ((index (lookupindex (varlist layer) var)))
+      (if (= -1 index)
+          'no_such_value
+          (list-ref (vallist layer) (- (length (varlist layer)) index 1))))))
+
+(define lookupenvironment
+  (lambda (env var)
+    (let ((value (lookuplayer env var)))
+      (if (eq? value 'no_such_value)
+          'no_such_value
+          (unbox value)))))
+
+(define checklayers
+  (lambda (layer var)
+    (not (= -1 (lookupindex (car layer) var)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;; end layer operations ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;; state operations ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define newstate
+  (lambda () '((() ()))))
+
+(define addlayer
+  (lambda (state)
+    (cons (newlayer) state)))
+
+(define removelayer cdr)
+(define getlayer car)
+(define remaininglayer cdr)
+
+(define addbindingtostate
+  (lambda (state var value)
+    (if (checklayers (car state) var)
+        (error "variable has been declared.")
+        (cons (addtolayer (getlayer state) var (box value)) (remaininglayer state)))))
+
+(define getbindingfromstate
+  (lambda (state var)
+    (if (null? state)
+         'no_such_value
+         (let ((value (lookuplayer (getlayer state) var)))
+           (if (eq? value 'no_such_value)
+               (getbindingfromstate (remaininglayer state) var)
+               value)))))
+
+; gets state for a function
+(define trimstate
+  (lambda (funcname state)
+    (if (null? state)
+        (error "Function name not found.")
+        (let ((val (lookuplayer (car state) funcname)))
+          (if (eq? val 'no_such_value)
+              (trimstate funcname (cdr state))
+              state)))))
+
+(define lookupboxinstate
+  (lambda (state var)
+    (let ((value (getbindingfromstate state var)))
+      (if (eq? value 'no_such_value)
+          (error "Variable binding not found.")
+          value))))
+
+(define lookupbindinginstate
+  (lambda (state var) (unbox (lookupboxinstate state var))))
+
+(define checkStateMember
+  (lambda (state var)
+    (not (eq? (getbindingfromstate state var) 'no_such_value))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;; end state operations ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; class operations ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define newClass
+  (lambda (parent name)
+    (list 'class parent name
+          (if (eq? parent 'null)
+              (newlayer)
+              (fieldOftheClass parent))
+          (if (eq? parent 'null)
+              (newlayer)
+              (methodOftheClass parent))
+          (if (eq? parent 'null)
+              (newlayer)
+              (instanceOftheClass parent)))))
+
+(define parentOftheClass cadr)
+(define nameOftheClass caddr)
+(define fieldOftheClass cadddr)
+(define methodOftheClass (lambda (l) (list-ref l 4)))
+(define instanceOftheClass (lambda (l) (list-ref l 5)))
+
+(define setFieldforClass
+  (lambda (class fields)
+    (setlist class 3 fields)))
+
+(define setMethodforClass
+  (lambda (class methods)
+    (setlist class 4 methods)))
+
+(define setInstanceforClass
+  (lambda (class inst)
+    (setlist class 5 inst)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;; end class operations ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;; instance operations  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; Returns a new instance. 
+(define newinstance
+  (lambda (class)
+    (list 'inst class '())))
+
+(define instanceClass cadr)
+(define instanceValues caddr)
+
+;; Modifying an instance.
+(define setInstanceValues
+  (lambda (inst values)
+    (list 'inst (instanceClass inst) values)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;; end instance operations ;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; context operations ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define defaultreturn (lambda (v) (error 'invalidReturn: "return used outside of function")))
+(define defaultcontinue (lambda (v) (error 'invalidContinue: "continue used outside of loop")))
+(define defaultbreak (lambda (v) (error 'invalidBreak: "break used outside of loop")))
+(define defaultthrow (lambda (v w) (error 'unhandledException: "exception was thrown and not caught")))
+
+(define defaultContext
+  (lambda ()
+    (list defaultreturn
+          defaultcontinue
+          defaultbreak
+          defaultthrow
+          'null
+          'null
+          'null)))
+
+(define contextReturn car)
+(define contextContinue cadr)
+(define contextBreak caddr)
+(define contextThrow cadddr)
+(define contextClass (lambda (l) (list-ref l 4)))
+(define contextInstclass (lambda (l) (list-ref l 5)))
+(define contextCurrclass (lambda (l) (list-ref l 6)))
+
+(define setContextReturn
+  (lambda (context return)
+    (cons return (cdr context))))
+
+(define setContextContinue
+  (lambda (context break)
+    (setlist context 1 break)))
+
+(define setContextBreak
+  (lambda (context continue)
+    (setlist context 2 continue)))
+
+(define setContextThrow
+  (lambda (context class)
+    (setlist context 3 class)))
+
+(define setContextClass
+  (lambda (context instclass)
+    (setlist context 4 instclass)))
+
+(define setContextInstclass
+  (lambda (context throw)
+    (setlist context 5 throw)))
+
+(define setContextCurrclass
+  (lambda (context currclass)
+    (setlist context 6 currclass)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;; end context operations ;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;; class/instance lookups ;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define lookupVarBox
+  (lambda (var state class instance)
+    (cond
+     ((eqv? var 'this) (box instance))
+     ((checkStateMember state var) (lookupboxinstate state var))
+     ((and (not (eq? 'null class))
+           (checklayers (fieldOftheClass class) var))
+      (lookuplayer (fieldOftheClass class) var))
+     ((and (not (eq? 'null instance))
+           (checklayers (list (car (instanceOftheClass class)) (instanceValues instance)) var))
+      (lookuplayer (list (car (instanceOftheClass class)) (instanceValues instance)) var))
+     (else 'no_such_value))))
+
+(define lookupFuncfromEnv
+  (lambda (var state class instance)
+    (cond
+     ((checkStateMember state var) (lookupbindinginstate state var))
+     ((checklayers (methodOftheClass class) var) (lookupenvironment (methodOftheClass class) var))
+     (else (error "cannot find the function.")))))
+
+(define findVariableClass
+  (lambda (var state context)
+    (cond
+     ((not (list? var)) (error "Dot operator wrong application."))
+     ((eq? (object var) 'class) (list 'null var))
+     ((eq? (object var) 'inst) (list var (instanceClass var)))
+     (else (error "Dot operator wrong application.")))))
+
+(define convertSymboltoPair
+  (lambda (leftside state class context)
+    (if (list? leftside)
+        (cond
+         ((eq? (car leftside) 'funcall) (findVariableClass (M_value_funccall leftside state context)
+                                                           state context))
+         ((eq? (car leftside) 'dot) (findVariableClass (unbox (lookupDotVar leftside state context))
+                                                       state context))
+         ((eq? (car leftside) 'new) (findVariableClass (M_value_new leftside state context)  state context)))
+        (let ((lookup (lookupVarBox leftside state class (contextInstclass context))))
+          (cond
+           ((eq? leftside 'this) (list (contextInstclass context) (instanceClass (contextInstclass context))))
+           ((eq? leftside 'super) (list (contextInstclass context) (parentOftheClass class)))
+           ((eq? 'no_such_value lookup)
+            (error "Not found."))
+           (else (findVariableClass (unbox lookup) state context)))))))
+
+(define lookupDotFunc
+  (lambda (stmt state context)
+    (let ((instanceClass (convertSymboltoPair (funcname stmt) state (contextClass context) context)))
+      (cons (lookupFuncfromEnv (expression stmt) (newstate) (funcname instanceClass) (object instanceClass))
+            instanceClass))))
+
+(define lookupFunc
+  (lambda (stmt state context)
+    (if (list? stmt)
+        (lookupDotFunc stmt state context)
+        (list (lookupFuncfromEnv stmt state (contextClass context) (contextInstclass context))
+              (contextInstclass context) (contextClass context)))))
+
+(define lookupDotVar
+  (lambda (stmt state context)
+    (let ((instanceClass (convertSymboltoPair (instanceClass stmt) state (contextCurrclass context) context)))
+      (lookupVarBox (expression stmt) (newstate) (parentOftheClass instanceClass) (vartype instanceClass)))))
+
+(define lookupVar
+  (lambda (stmt state context)
+    (if (list? stmt)
+        (lookupDotVar stmt state context)
+        (lookupVarBox stmt state (contextCurrclass context) (contextInstclass context)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;; end class/instance lookups ;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; M_value functions ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define operator car)
+(define lop cadr)
+(define rop caddr)
+
+; checks if it has one binary operand
+(define binaryOpInterpret
+  (lambda (operator)
+    (cond
+      ((eq? operator '+) +)
+      ((eq? operator '-) -)
+      ((eq? operator '/) quotient)
+      ((eq? operator '*) *)
+      ((eq? operator '%) remainder)
+
+      ((eq? operator '&&) (lambda (x y) (and x y)))
+      ((eq? operator '||) (lambda (x y) (or x y)))
+      ((eq? operator '<) <)
+      ((eq? operator '>) >)
+      ((eq? operator '<=) <=)
+      ((eq? operator '>=) >=)
+      ((eq? operator '==) ==)
+      ((eq? operator '!=) !=)
+
+      (else (error "Illegal operator.")))))
+
+; checks if it has one unary operand
+(define UnaryOpInterpret
+  (lambda (operator)
+    (cond
+      ((eq? operator '!) not)
+      ((eq? operator '-) (lambda (x) (- 0 x)))
+      (else (error "illegal operator: " operator)))))
+
+(define M_value_expression
+  (lambda (stmt state context)
+    (if (= 3 (length stmt))
+        ((binaryOpInterpret (operator stmt))
+         (M_value (lop stmt) state context)
+         (M_value (rop stmt) state context))
+        ((UnaryOpInterpret (operator stmt))
+         (M_value (lop stmt) state context)))))
+
+(define M_value_assign
+  (lambda (stmt state context)
+    (let* (
+           (box (lookupVar (lop stmt) state context))
+           (value (M_value (rop stmt) state context)))
+      (set-box! box value)
+      value)))
+
+(define M_value_atom
+  (lambda (stmt state context)
+    (cond
+      ((or (boolean? stmt) (number? stmt)) stmt)
+      ((eq? stmt 'true) #t)
+      ((eq? stmt 'false) #f)
+      ((eq? 'undefined (M_value_var stmt state context))
+       (error "Use of undefined variable:" stmt))
+      (else (M_value_var stmt state context)))))
+
+(define formalargs car)
+(define actualargs cddr)
+(define firstarg car)
+(define nextargs cdr)
+
+(define convertListtoLayer
+  (lambda (formal actual state context)
+    (cond
+     ((and (null? formal) (null? actual)) (newlayer))
+     ((or (null? formal) (null? actual)) (error "Argument number not march."))
+     ((eq? '& (firstarg formal)) (addtolayer (convertListtoLayer (actualargs formal) (nextargs actual)
+                                                                  state context)
+                                          (cadr formal)
+                                          (lookupVar (firstarg actual) state context)))
+     (else (addtolayer (convertListtoLayer (nextargs formal) (nextargs actual)
+                                                 state context)
+                         (firstarg formal) (box (M_value (firstarg actual) state context)))))))
+
+(define funcname cadr)
+(define funcbody cadr)
+(define binding cadr)
+
+; returns the mathematical value of a function call
+(define M_value_funccall
+  (lambda (funccall state context)
+    (let* (
+           (l (lookupFunc (funcname funccall) state context))
+           (closure (car l))
+           (instance (cadr l))
+           (instance ((list-ref closure 4) instance))
+           (class (caddr l))
+           (currclass ((cadddr closure) state))
+           (class (if (eq? 'null instance) currclass class))
+           (outerenv ((caddr closure) state))
+           (newstate (cons (convertListtoLayer (car closure) (cddr funccall)
+                                                   state context)
+                           outerenv))
+           (err (lambda (v) (error "Can't break or continue here."))))
+      (call/cc
+       (lambda (return)
+         (M_state_statement (funcbody closure) newstate (setContextClass 
+                                                   (setContextReturn 
+                                                    (setContextBreak  
+                                                     (setContextInstclass
+                                                      (setContextCurrclass
+                                                       (setContextContinue 
+                                                        context err)
+                                                       currclass)
+                                                      instance)
+                                                     err)
+                                                    return)
+                                                   class)))))))
+
+(define M_value_var
+  (lambda (stmt state context)
+    (let ((box (lookupVarBox stmt state (contextCurrclass context) (contextInstclass context))))
+      (if (eqv? box 'no_such_value)
+          (error "Variable not found: " stmt)
+          (unbox box)))))
+
+(define M_value_dot
+  (lambda (stmt state context)
+    (unbox (lookupDotVar stmt state context))))
+
+(define M_value_new
+  (lambda (stmt state context)
+    (let ((class (lookupbindinginstate state (binding stmt))))
+      (if (not (and (list? class) (eq? (car class) 'class)))
+          (error "Not a class: " (cadr stmt))
+          (setInstanceValues (newinstance class) (box-all (binding (instanceOftheClass class))))))))
+
+; returns the mathematical value of a statement
+(define M_value
+  (lambda (stmt state context)
+    (cond
+     ((list? stmt) (cond
+                    ((eq? '= (operator stmt)) (M_value_assign stmt state context))
+                    ((eq? 'funcall (operator stmt)) (M_value_funccall stmt state context))
+                    ((eq? 'dot (operator stmt)) (M_value_dot stmt state context))
+                    ((eq? 'new (operator stmt)) (M_value_new stmt state context))
+                    (else (M_value_expression stmt state context))))
+     (else (M_value_atom stmt state context)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;; end M_value functions ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; M_state functions ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define variable cadr)
+(define expression caddr)
+(define condition cadr)
+(define whilebody caddr)
+(define trybody cadr)
+(define firststatement car)
+(define nextstatements cdr)
+(define params caddr)
+(define body cadddr)
+
+; interprets an if statement
+(define M_state_if
+  (lambda (stmt state context)
+    (if (= 3 (length stmt))
+          (if (M_value (list-ref stmt 1) state context)
+              (M_state (list-ref stmt 2) state context)
+              state)
+          (if (M_value (list-ref stmt 1) state context) ; has an else branch
+              (M_state (list-ref stmt 2) state context)
+              (M_state (list-ref stmt 3) state context)))))
+              
+; interprets a declaration
+(define M_state_declare
+  (lambda (stmt state context)
+    (if (= 3 (length stmt))
+        (addbindingtostate (M_state (expression stmt) state context)
+                   (variable stmt) ; declaration
+                   (M_value (expression stmt) state context)) ; and assignment
+        (addbindingtostate state (variable stmt) 'undefined))))
+
+; interprets an assignment
+(define M_state_assign
+  (lambda (stmt state context)
+    (begin (M_value_assign stmt state context) state)))
+
+; interprets an return statement
+(define M_state_return
+  (lambda (stmt state context)
+    ((contextReturn context) (M_value (variable stmt) state context))))
+
+; divide parse tree to statements
+(define M_state_statement
+  (lambda (block state context)
+    (if (null? block)
+        state
+        (M_state_statement (nextstatements block)
+                         (M_state (firststatement block) state context)
+                         context))))
+
+; Evaluate the states inside a block
+(define M_state_block
+  (lambda (block state context)
+    (removelayer
+     (M_state_statement (nextstatements block) (addlayer state)
+                      (setContextContinue
+                       (setContextBreak
+                        context
+                        (lambda (s) ((contextBreak context) (removelayer s))))
+                       (lambda (s) ((contextContinue context) (removelayer s))))))))
+
+; interprets a while statement
+(define M_state_while
+  (lambda (stmt state context)
+    (call/cc
+     (lambda (break_new)
+       (letrec
+           ((loop (lambda (condition body state)
+                    (if (M_value condition state (setContextBreak context break_new))
+                        (loop condition body
+                              (call/cc (lambda (continue_new)
+                                         (M_state body state
+                                                 (setContextContinue
+                                                  (setContextBreak context break_new)
+                                                  continue_new)))))
+                        state))))
+         (loop (condition stmt) (whilebody stmt) state))))))
+
+; interprets a function
+(define M_state_funcdecl
+  (lambda (funcdecl state context)
+    (let ((fname (cadr funcdecl)))
+      (addbindingtostate state fname
+                 (list (params funcdecl) 
+                       (body funcdecl) 
+                       (lambda (state)
+                         (trimstate fname state))
+                       (lambda (state) 
+                         (contextClass context))
+                       (lambda (v) v))))))
+                       
+; interprets a function call
+(define M_state_funccall
+  (lambda (funccall state context)
+    (begin
+      (M_value funccall state context)
+      state)))
+      
+;; Binds a class declaration to the name of the class in the state. 
+(define M_state_class
+  (lambda (stmt state context)
+    (let* ((name (variable stmt))
+           (extends (expression stmt))
+           (parent (if (null? extends) 'null (lookupbindinginstate state (binding extends))))
+           (body (body stmt))
+           (initial (newClass parent name))
+           (class (M_class_statement body state (setContextCurrclass (setContextClass context initial) initial))))
+      (addbindingtostate state name class))))      
+
+(define createFinally
+  (lambda (l state context)
+    (if (null? l)
+        ; no finally block
+        (lambda (thrown) thrown)
+        ; finally block
+        (lambda (thrown) (begin (M_state_block (cons 'begin (cadr l)) state context)
+                                thrown)))))
+
+(define createCatch
+  (lambda (l finally continuation state context)
+    (if (null? l)
+        (contextThrow context) ; no catch block
+        (lambda (thrown) ; catch block
+          (continuation (M_state_statement (params l)
+                                         (cons (addtolayer (newlayer) (caadr l) (box thrown))
+                                               state)
+                                         context))))))
+
+; add a new throw continuation with all of the old continuations
+(define contextUpdate
+  (lambda (context finally)
+    (setContextReturn
+     (setContextBreak
+      (setContextContinue
+       (setContextThrow context
+        (lambda (v) ((contextThrow context) (finally v))))
+       (lambda (v) ((contextContinue context) (finally v))))
+      (lambda (v) ((contextBreak context) (finally v))))
+     (lambda (v) ((contextReturn context) (finally v))))))
+
+(define catchblock caddr)
+(define finallyblock cadddr)
+
+; returns the state after a try block
+(define M_state_try
+  (lambda (stmt state context)
+    (let* ((finally (createFinally (finallyblock stmt) state context))
+           (context2 (contextUpdate context finally)))
+      (finally
+       (call/cc
+        (lambda (c)
+          (let* ((catch (createCatch (catchblock stmt) finally c state context2))
+                 (newcontext (setContextThrow context2 catch)))
+            (M_state_block (cons 'begin (trybody stmt)) state newcontext))))))))
+
+(define M_state_throw
+  (lambda (stmt state context)
+    ((contextThrow context) (M_value (variable stmt) state context))))
+
+; The main M_state function
+(define M_state
+  (lambda (stmt state context)
+    (cond
+     ((null? stmt) state)
+     ((list? stmt) (cond
+                    ((list? (operator stmt)) (M_state_statement stmt state context))
+                    ((eq? 'begin (operator stmt)) (M_state_block stmt state context))
+                    ((eq? 'var (operator stmt)) (M_state_declare stmt state context))
+                    ((eq? '= (operator stmt)) (M_state_assign stmt state context))
+                    ((eq? 'if (operator stmt)) (M_state_if stmt state context))
+                    ((eq? 'return (operator stmt)) (M_state_return stmt state context))
+                    ((eq? 'break (operator stmt)) ((contextBreak context) state))
+                    ((eq? 'continue (operator stmt)) ((contextContinue context) state))
+                    ((eq? 'while (operator stmt)) (M_state_while stmt state context))
+                    ((eq? 'function (operator stmt)) (M_state_funcdecl stmt state context))
+                    ((eq? 'funcall (operator stmt)) (M_state_funccall stmt state context))
+                    ((eq? 'try (operator stmt)) (M_state_try stmt state context))
+                    ((eq? 'throw (operator stmt)) (M_state_throw stmt state context))
+                    (else state)))
+     (else state))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; end M_state functions ;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; M_class functions ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define parlist caddr)
+(define bod cadddr)
+
+; return the class with the field added
+(define M_class_staticdeclare
+  (lambda (stmt state context)
+    (let* ((class (contextClass context)))
+      (setFieldforClass
+       class
+       (addenvironment (fieldOftheClass class)
+                (cadr stmt)
+                (if (= 3 (length stmt)) ;; Allow for assignment.
+                    (M_value (parlist stmt) state context)
+                    'undefined))))))
+
+; returns the binding after class declaration
+(define M_class_declare
+  (lambda (stmt state context)
+    (let* ((class (contextClass context)))
+      (setInstanceforClass
+       class
+       (addtolayer (instanceOftheClass class)
+                     (cadr stmt)
+                     (if (= 3 (length stmt)) ; declaration and assignment
+                         (M_value (parlist stmt) state context)
+                         'undefined))))))
+
+
+; return the class with the function added
+(define M_class_funcdecl
+  (lambda (funcdecl state static context)
+    (let* ((fname (cadr funcdecl))
+           (class (contextClass context))
+           (cname (nameOftheClass class)))
+      (setMethodforClass
+       class
+       (addenvironment (methodOftheClass class)
+                fname
+                (list (parlist funcdecl)
+                      (bod funcdecl)
+                      (lambda (state)   ; creates the environment
+                        (let ((class (lookupbindinginstate state cname)))
+                          (trimstate cname state)))
+                      (lambda (state)   ; gets class from a state
+                        (lookupbindinginstate state cname))
+                      (if static
+                          (lambda (v) 'null)
+                          (lambda (v) v))))))))
+
+; returns the class after executing each statement in its declaration
+(define M_class
+  (lambda (stmt state context)
+    (cond
+     ((null? stmt) (contextClass context))
+     ((list? stmt) (cond
+                    ((eq? 'static-function (firststatement stmt)) (M_class_funcdecl stmt state #t context))
+                    ((eq? 'function (firststatement stmt)) (M_class_funcdecl stmt state #f context))
+                    ((eq? 'static-var (firststatement stmt)) (M_class_staticdeclare stmt state context))
+                    ((eq? 'var (firststatement stmt)) (M_class_declare stmt state context))
+                    (else (error "Invalid statement in class declaration."))))
+     (else (contextClass context)))))
+
+; interprets each statement in class declaration
+(define M_class_statement
+  (lambda (block state context)
+    (if (null? block)
+        (contextClass context)
+        (M_class_statement (cdr block)
+                         state
+                         (let ((newclass (M_class (car block) state context)))
+                           (setContextCurrclass (setContextClass context newclass) newclass))))))
+

@@ -1,0 +1,69 @@
+#lang racket
+
+; Scheme L3 in class
+(define myappend
+  (lambda (l1 l2)
+    (cond
+      ((null? l1) l2)
+      (else (cons (car l1) (myappend (cdr l1) l2))))))
+
+; reverses a list : (a b c d) -> (d c b a)
+(define myreverse
+  (lambda (l)
+    (cond
+      ((null? l) '())
+      (else (myappend (myreverse (cdr l)) (cons (car l) '()))))))
+
+; removeall from L2 ; removes all the occurences of the element a in a list l
+(define removeall
+  (lambda (a l)
+    (cond
+      ((null? l) '())
+      ((eq? a (car l)) (removeall a (cdr l)))
+      (else (cons (car l) (removeall a (cdr l)))))))
+
+; we want a removeall function that removes all occurences of an atom even
+; if they contain sublists
+; to test for an atom use define atom function
+(define atom?
+  (lambda (a)
+    (and (not (pair? a)) (not (null? a)))))
+
+(define removeall*
+  (lambda (a l)
+    (cond
+      ((null? l) '())
+      ((atom? (car l))
+       (cond
+         ((eq? a (car l)) (removeall* a (cdr l)))
+         (else (cons (car l) (removeall* a (cdr l))))))
+      (else
+       (cons (removeall* a (car l)) (removeall* a (cdr l)))))))
+
+; different way to write removeall* by testing for list rather than atom
+(define removeall2*
+  (lambda (a l)
+    (cond
+      ((null? l) '())
+      ((list? (car l)) (cons (removeall2* a (car l)) (removeall2* a (cdr l))))
+      ((eq? (car l) a) (removeall2* a (cdr l)))
+      (else
+       (cons (car l) (removeall2* a (cdr l)))))))
+
+; function which tests to see if two lists are equal in contents and structure
+; (eq-list* '(a (v)) '(a (v))) => #t
+; (eq-list* '((a) v) '(a (v))) => #f
+(define eq-list*
+  (lambda (l1 l2)
+    (cond
+      ((and (null? l1) (null? l2)) #t) ;both are null
+      ((or (null? l1) (null? l2)) #f)  ;one is null
+      ((and (list? (car l1) (list? (car l2))) ;both first elements are lists
+            (and (eq-list* (car l1) (car l2)) ;we know both args are a list
+                 (eq-list* (cdr l1) (cdr l2)))))
+      ((or (list? (car l1)) (list? (car l2))) #f)
+      (else
+       (and (eq? (car l1) (car l2))
+            (and (eq-list* (cdr l1) (cdr l2))))))))
+            
+      

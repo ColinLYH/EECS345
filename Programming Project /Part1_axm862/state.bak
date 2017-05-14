@@ -1,0 +1,5 @@
+#lang racket
+
+
+(define binding_pairs '())
+(define list_of_binding_pairs (list binding_pairs))

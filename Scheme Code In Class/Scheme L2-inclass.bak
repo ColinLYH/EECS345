@@ -1,0 +1,20 @@
+#lang racket
+
+; L2-in class
+; car = first element, cdr = sublist of all elements but first
+; be able to write a function to sum all the numbers in a list (TEST QUESTION), so you test for
+; each atom to see if its a number
+
+
+; Today we will look at more recursive functions by using: cond, helper functions
+
+
+
+; take a list and a number and return that element of the list
+(define getIndex
+  (lambda (l n) ; zero indexing
+    (cond
+      ((null? l) #f)
+      ((zero? n) (car l))
+      (else (getIndex (cdr l) (- n 1))))))
+    

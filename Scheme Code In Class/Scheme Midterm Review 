@@ -1,0 +1,91 @@
+#lang racket
+
+; Exam programming questions
+; -simple problems, solve in functional style (using Scheme)
+
+; Today we practice:
+; - try to write these so that they execute correctly on the *first* try
+
+; Think about and think through
+; - logic
+; - base cases
+; - recursive case - going toward zero?
+; - don't omit basics: define lambda cond else
+; - think through simple test cases
+; - hand execute with simple examples before you hit run
+
+; my-append
+; (my-append '(a b c) '(1 2 3)) -> (a b c 1 2 3)
+(define my-append
+  (lambda (l1 l2)
+    (cond
+      ((null? l1)
+       l2
+       (cons (car l1) (my-append (cdr l1) l2))))))
+
+; sum*
+; sums all the numbers in a possibly nested list
+; (sum* '((a 1) b 2 (c 3))) ==> 6
+(define sum*
+  (lambda (l)
+    (cond
+      ((null? l) 0)
+      ((number? (car l)) (+ (car l) (sum* (cdr l))))
+      ((list? (car l)) (+ (sum* (car l)) (sum* (cdr l))))
+      (else (sum* (cdr l))))))
+
+; nsqrt takes two numbers, a value and an interation
+; The iteration will be an integer greater than or equal to zero.
+; The method will compute the squareroot of the value using iteration
+; rounds of newtons method, starting with an initial value equal to
+; the input value. Newton's method is: new = old - ((old*old) - value) / (2 * old)
+(define nsqrt
+  (lambda (val i)
+    (cond
+      ((zero? i) val)
+      (else (- (nsqrt val (- i 1)) (/ (- (* (nsqrt val (- i 1)) (nsqrt val (- i 1))) val) (* (nsqrt val (- i 1)) 2)))))))
+
+; continuation passing style
+; what to think about:
+; what is the call at the base when the continuation is fully "constructed"?
+; where does the continuation go so that as you recurse, the continuation is built up?
+; or so that the computation is completed for that level of the recursion?
+(define my-append-cps
+  (lambda (l1 l2 return)
+    (cond
+      ((null? l1) (return l2))
+      (else (my-append-cps (cdr l1) l2 (lambda (v) (return (cons (car l1) v))))))))
+
+; sum*-cps
+; this is a more difficult one: cps for a nested function
+; need to think about how to recurse on both (car l) and (cdr l)
+; with only tail calls. Key is to use the results of (cdr l) as argument for the continuation for
+; (car l). The continuation for this case is a nested function. If nothing needs to be done,
+; just pass the continuation along.
+(define sum*-cps
+  (lambda (l return)
+    (cond
+      ((null? l) (return 0))
+      ((number? (car l)) (sum*-cps (cdr l) (lambda (v) (return (+ (car l) v)))))
+      ((list? (car l)) (sum*-cps (cdr l) (lambda (w) (return (+ (sum*-cps (car l) (lambda (x) x)) w)))))
+      (else (sum*-cps (cdr l) (lambda (z) z))))))
+
+
+; (pull-out-numbers '(a 1 2 b 3 c 4 5) (lambda (v1 v2) (cons v1 (list v2))) ---> '((1 2 3 4 5) (a b c))
+; (pull-out-numbers '(a 1 2 b 3 c 4 5) (lambda (v1 v2) (append v1 v2))) ------> '(1 2 3 4 5 a b c)
+(define pull-out-numbers
+  (lambda (l return)
+    (cond
+      ((null? l) (return '() '()))
+      ((number? (car l))
+       (pull-out-numbers (cdr l)
+                         (lambda (v1 v2)
+                           (return (cons (car l) v1) v2))))
+       (else
+        (pull-out-numbers (cdr l)
+                          (lambda (v1 v2)
+                            (return v1 (cons (car l) v2))))))))
+
+
+
+      

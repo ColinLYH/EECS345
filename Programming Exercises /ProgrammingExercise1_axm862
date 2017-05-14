@@ -1,0 +1,132 @@
+#lang racket
+; Aditya Malik
+; inorder? takes a list of numbers and returns #t if the numbers are in non-decreasing order
+(define inorder
+  (lambda (l)
+    (cond
+      ((null? l) #t)
+      ((eq? (length l) 1) #t)
+      ((<= (car l) (car (cdr l)))
+       (inorder (cdr l)))
+       (else #f))))
+
+; dotproduct takes two vectors (list of numbers) and computers the dot product of the vectors.
+; If one list is longer than the other, you can ignore the extra numbers of the longer list
+(define dotproduct
+  (lambda (l1 l2)
+    (cond
+      ((null? l1) 0)
+      ((null? l2) 0)
+      (else (+(*(car l1) (car l2)) (dotproduct (cdr l1) (cdr l2)))))))
+
+; squareroot takes two numbers, a value and an iteration. The iteration will be an integer
+; greater than or equal to 0. The method will compute the squareroot of the value using
+; iteration rounds of Newton's method, starting with an initial value equal to the input
+; value. Newton's method is new = old - ((old*old)-value)/(2*old)
+(define squareroot
+  (lambda (val i)
+    (cond
+      ((zero? i) val)
+      (else (- (squareroot val (- i 1)) (/ (- (* (squareroot val (- i 1)) (squareroot val (- i 1))) val) (* (squareroot val (- i 1)) 2))))))) 
+
+; removesubsequence takes two lists of atoms. The first list is a subsequence of the
+; second list. The method should return the second list with the first occurence of the
+; subsequence removed. So if the first list is '(a b c), the first a if the second list
+; is removed, the first b that appears after the removed a is removed, and the first c
+; that appears after the removed b is removed.
+(define removesubsequence
+  (lambda (l1 l2)
+    (cond
+      ((null? l1) l2)
+      ((eq? (car l1) (car l2)) (removesubsequence (cdr l1) (cdr l2)))
+      (else (cons (car l2) (removesubsequence l1 (cdr l2)))))))
+
+
+;reverse* takes a nested list and reverses the contents of the list and all nested lists
+(define reverse*
+  (lambda (l)
+    (cond
+      ((null? l) '())
+      ((atom? (car l)) (append (reverse* (cdr l)) (cons (car l) '())))
+      (else (append (reverse* (cdr l)) (cons (reverse* (car l)) '()))))))
+      
+
+
+; first* takes a list of lists and returns the first atom that appears in the list, regardless
+; of how nested it is
+; atom - helper function to test for atom
+(define atom?
+  (lambda (a)
+    (and (not (pair? a)) (not (null? a))))) 
+(define first*
+  (lambda (l)
+    (cond
+      ((null? l) '())
+      ((atom? (car l)) (car l))
+      (else (first* (car l))))))
+
+
+; last* takes a list of lists and returns the last atom that appears in the list, regardless
+; of how nested it is
+(define last*
+  (lambda (l)
+    (cond
+      ((null? l) '())
+      ((atom? l) l)
+      ((null? (cdr l)) (last* (car l)))
+      (else (last* (cdr l))))))
+
+
+; numorder*? takes a possibly nested list of numbers, and returns #t if the values of the
+; entries in the list are in non-decreasing order. The value of a number is the number.
+; The value of a list is the sum of the values in that list.
+; sumnumbers* helper function from class
+(define sumnumbers*
+  (lambda (l)
+    (cond
+      ((null? l) 0)
+      ((number? (car l)) (+ (car l) (sumnumbers* (cdr l))))
+      ((list? (car l)) (+ (sumnumbers* (car l)) (sumnumbers* (cdr l))))
+      (else (sumnumbers* (cdr l))))))
+(define numorder*?
+  (lambda (l)
+    (cond
+      ((null? l) #t)
+      ((null? (cdr l)) #t)
+      ((list? (car l)) (numorder*? (cons (sumnumbers* (car l)) (cdr l)))) ;if its a list then sum the total and add back to list
+      ((list? (car (cdr l))) (numorder*? (cons (sumnumbers* (car (cdr l))) (cdr (cdr l))))) ;if the next element is a list then sum total and add back to list to compare below
+      ((<= (car l) (car (cdr l))) (numorder*? (cdr l))) ;compare the two values to see if they are in order
+      (else #f)))) ;false if not
+
+
+; vectormult takes a row vector (a list of numbers) and matrix (a list of lists of numbers)
+; and multiplies the vector times the matrix. The result is a vector where the ith element
+; of the result is the dotproduct of the input vector and the ith column of the matrix.
+; You can assume that the length of the vector matches the number of rows of the matrix.
+; Need helper functions getFirstAtoms and removeFirstAtoms
+(define getFirstAtoms
+  (lambda (l)
+    (cond
+      ((null? l) '())
+      (else (cons (first* l) (getFirstAtoms (cdr l)))))))
+(define removeFirstAtoms
+  (lambda (l)
+    (cond
+      ((null? l) '())
+      ((null? (car l)) '())
+      (else (cons (cdr (car l)) (removeFirstAtoms (cdr l)))))))
+(define vectormult
+  (lambda (l1 l2)
+    (cond
+      ((null? (first* l2)) '())
+      (else (cons (dotproduct l1 (getFirstAtoms l2)) (vectormult l1 (removeFirstAtoms l2)))))))
+
+
+; matrixmultiply takes two matricies (a list of lists of numbers) and multiplies them.
+; You can assume the number of columns of the first matrix is equal to the number of rows
+; of the second matrix in the same sublist. 
+(define matrixmultiply
+  (lambda (matrix1 matrix2)
+    (cond
+      ((null? matrix1) '())
+      (else (cons (vectormult (car matrix1) matrix2) (matrixmultiply (cdr matrix1) matrix2))))))
